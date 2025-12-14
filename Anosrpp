@@ -3,7 +3,6 @@
 ------------------------------------------------
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GuiService = game:GetService("GuiService")
 local Vim = game:GetService("VirtualInputManager")
 
 ------------------------------------------------
@@ -15,277 +14,261 @@ local backpack = player:WaitForChild("Backpack")
 local pityBoss = player:WaitForChild("Pity"):WaitForChild("Boss")
 
 ------------------------------------------------
--- 🔁 CHARACTER (SAFE LOAD)
+-- 🔁 CHARACTER
 ------------------------------------------------
-local character
-local hrp
-
-local function loadCharacter()
-	character = player.Character or player.CharacterAdded:Wait()
-	hrp = character:WaitForChild("HumanoidRootPart", 10)
+local character, hrp
+local function onChar(char)
+	character = char
+	hrp = char:WaitForChild("HumanoidRootPart")
 end
-loadCharacter()
-player.CharacterAdded:Connect(loadCharacter)
-
-------------------------------------------------
--- 🖥️ GUI
-------------------------------------------------
-local ScreenGui = Instance.new("ScreenGui", playerGui)
-ScreenGui.Name = "PityAutoFarmGui"
-ScreenGui.ResetOnSpawn = false
-
-local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0,230,0,120)
-Frame.Position = UDim2.new(0,20,0.5,-60)
-Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-Frame.BorderSizePixel = 0
-Frame.Active = true
-Frame.Draggable = true
-Instance.new("UICorner", Frame).CornerRadius = UDim.new(0,12)
-
-local Title = Instance.new("TextLabel", Frame)
-Title.Size = UDim2.new(1,0,0,28)
-Title.BackgroundTransparency = 1
-Title.Text = "PITY AUTO FARM"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 14
-Title.TextColor3 = Color3.fromRGB(200,200,200)
-
-local PityText = Instance.new("TextLabel", Frame)
-PityText.Position = UDim2.new(0,0,0,32)
-PityText.Size = UDim2.new(1,0,0,28)
-PityText.BackgroundTransparency = 1
-PityText.Font = Enum.Font.GothamBold
-PityText.TextScaled = true
-
-local AutoBtn = Instance.new("TextButton", Frame)
-AutoBtn.Position = UDim2.new(0,20,1,-35)
-AutoBtn.Size = UDim2.new(1,-40,0,28)
-AutoBtn.Text = "AUTO FARM : OFF"
-AutoBtn.Font = Enum.Font.GothamBold
-AutoBtn.TextSize = 13
-AutoBtn.BackgroundColor3 = Color3.fromRGB(120,60,60)
-AutoBtn.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", AutoBtn).CornerRadius = UDim.new(0,8)
+onChar(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(onChar)
 
 ------------------------------------------------
 -- 🔄 STATE
 ------------------------------------------------
 local autoFarm = false
-getgenv().haki = false
-local allowSpawnSukuna = true
+getgenv().boss = false
+local autoPressE = false
 
 ------------------------------------------------
--- 🔘 BUTTON
-------------------------------------------------
-AutoBtn.MouseButton1Click:Connect(function()
-	autoFarm = not autoFarm
-	getgenv().haki = autoFarm
-
-	AutoBtn.Text = "AUTO FARM : " .. (autoFarm and "ON" or "OFF")
-	AutoBtn.BackgroundColor3 =
-		autoFarm and Color3.fromRGB(60,120,60)
-		or Color3.fromRGB(120,60,60)
-end)
-
-------------------------------------------------
--- 🧭 CONSTANT (STARTER ISLAND)
+-- 🗺️ CFRAMES
 ------------------------------------------------
 local STARTER_CFRAME = CFrame.new(
 	-74.1302795, 15.2930002, -387.613037,
-	0, 0, -1,
-	0, 1, 0,
-	1, 0, 0
+	0,0,-1, 0,1,0, 1,0,0
 )
+
+local AIZEN_WAIT_CFRAME = CFrame.new(
+	-468.047729, 4.84019613, -878.874878,
+	-0.817907691,0,-0.575349569,
+	0,1,0,
+	0.575349569,0,-0.817907691
+)
+
+------------------------------------------------
+-- ⚡ PROXIMITY PROMPT HOLD = 0
+------------------------------------------------
+task.spawn(function()
+	while true do
+		for _,v in pairs(workspace:GetDescendants()) do
+			if v:IsA("ProximityPrompt") then
+				v.HoldDuration = 0
+			end
+		end
+		task.wait(5)
+	end
+end)
+
+------------------------------------------------
+-- 🔘 PRESS E
+------------------------------------------------
+local function pressE()
+	if not autoPressE then return end
+	Vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+	task.wait(0.1)
+	Vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+end
+
+------------------------------------------------
+-- 🗡️ AUTO EQUIP ANY SWORD
+------------------------------------------------
+local function equipSword()
+	if not character then return end
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	for _,v in pairs(character:GetChildren()) do
+		if v:IsA("Tool") then return end
+	end
+
+	for _,tool in pairs(backpack:GetChildren()) do
+		if tool:IsA("Tool") and (
+			tool.ToolTip == "Sword"
+			or tool.Name:lower():find("sword")
+		) then
+			tool.Parent = character
+			return
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		if autoFarm then equipSword() end
+		task.wait(0.3)
+	end
+end)
 
 ------------------------------------------------
 -- 🔎 FIND BOSS
 ------------------------------------------------
-local function findBoss(areaName, bossName)
-	local area = workspace.Main.Characters:FindFirstChild(areaName)
-	if not area then return nil end
-
-	local bossFolder = area:FindFirstChild("Boss")
-	if not bossFolder then return nil end
-
-	for _, boss in pairs(bossFolder:GetChildren()) do
-		local hum = boss:FindFirstChildOfClass("Humanoid")
-		local bhrp = boss:FindFirstChild("HumanoidRootPart")
-		if boss.Name == bossName and hum and bhrp and hum.Health > 0 then
-			return bhrp
+local function findBoss(folder, name)
+	for _,v in pairs(folder:GetChildren()) do
+		if v.Name == name then
+			local hum = v:FindFirstChildOfClass("Humanoid")
+			local bhrp = v:FindFirstChild("HumanoidRootPart")
+			if hum and bhrp and hum.Health > 0 then
+				return bhrp
+			end
 		end
 	end
 	return nil
 end
 
 ------------------------------------------------
--- 🧭 WARP
+-- ⚔️ AUTO SKILL (เฉพาะใกล้บอส)
 ------------------------------------------------
-local function warpToStarterIsland()
-	if hrp then
-		hrp.CFrame = STARTER_CFRAME
-	end
-end
+local skills = {Enum.KeyCode.Z,Enum.KeyCode.X,Enum.KeyCode.C,Enum.KeyCode.V}
 
-local function warpToBoss(areaName, bossName)
-	local bossHRP = findBoss(areaName, bossName)
-	if bossHRP and hrp then
-		hrp.CFrame = bossHRP.CFrame * CFrame.new(0,0,6)
-	end
-end
-
-------------------------------------------------
--- 🔥 AUTO HAKI
-------------------------------------------------
 task.spawn(function()
 	while true do
-		if getgenv().haki then
-			ReplicatedStorage.Remotes.Serverside:FireServer(
-				"Server","Misc","Haki",1
-			)
-		end
-		task.wait(1)
-	end
-end)
-
-------------------------------------------------
--- 🔎 CHECK BOSS NEAR
-------------------------------------------------
-local function isBossNear(dist)
-	if not hrp then return false end
-	dist = dist or 25
-
-	for _, area in pairs(workspace.Main.Characters:GetChildren()) do
-		local bossFolder = area:FindFirstChild("Boss")
-		if bossFolder then
-			for _, boss in pairs(bossFolder:GetChildren()) do
-				local hum = boss:FindFirstChildOfClass("Humanoid")
-				local bhrp = boss:FindFirstChild("HumanoidRootPart")
-				if hum and bhrp and hum.Health > 0 then
-					if (bhrp.Position - hrp.Position).Magnitude <= dist then
-						return true
+		if autoFarm and hrp then
+			for _,area in pairs(workspace.Main.Characters:GetChildren()) do
+				local bossFolder = area:FindFirstChild("Boss")
+				if bossFolder then
+					for _,b in pairs(bossFolder:GetChildren()) do
+						local bhrp = b:FindFirstChild("HumanoidRootPart")
+						local hum = b:FindFirstChildOfClass("Humanoid")
+						if bhrp and hum and hum.Health > 0 then
+							if (bhrp.Position - hrp.Position).Magnitude < 25 then
+								for _,k in ipairs(skills) do
+									Vim:SendKeyEvent(true,k,false,game)
+									task.wait(0.1)
+									Vim:SendKeyEvent(false,k,false,game)
+								end
+							end
+						end
 					end
 				end
 			end
 		end
-	end
-	return false
-end
-
-------------------------------------------------
--- ⚔️ AUTO SKILL (ONLY WHEN FIGHTING BOSS)
-------------------------------------------------
-local skills = {
-	Enum.KeyCode.Z,
-	Enum.KeyCode.X,
-	Enum.KeyCode.C,
-	Enum.KeyCode.V
-}
-
-task.spawn(function()
-	while true do
-		if autoFarm and isBossNear(25) then
-			for _, key in ipairs(skills) do
-				if not autoFarm or not isBossNear(25) then break end
-				Vim:SendKeyEvent(true, key, false, game)
-				task.wait(0.1)
-				Vim:SendKeyEvent(false, key, false, game)
-				task.wait(0.25)
-			end
-		end
-		task.wait(0.1)
+		task.wait(0.4)
 	end
 end)
 
 ------------------------------------------------
--- 🗡️ AUTO EQUIP ANY SWORD (ULTRA SAFE)
-------------------------------------------------
-local function isHoldingTool(char)
-	for _, v in pairs(char:GetChildren()) do
-		if v:IsA("Tool") then return true end
-	end
-	return false
-end
-
-local function findSword()
-	for _, tool in pairs(backpack:GetChildren()) do
-		if tool:IsA("Tool") then
-			if tool.ToolTip == "Sword"
-			or string.find(string.lower(tool.Name), "sword")
-			or tool:FindFirstChild("SwordScript") then
-				return tool
-			end
-		end
-	end
-end
-
-task.spawn(function()
-	while true do
-		if autoFarm then
-			local char = player.Character
-			if char and not isHoldingTool(char) then
-				local hum = char:FindFirstChildOfClass("Humanoid")
-				local sword = findSword()
-				if hum and sword then
-					hum:UnequipTools()
-					task.wait(0.1)
-					sword.Parent = char
-				end
-			end
-		end
-		task.wait(0.2)
-	end
-end)
-
-------------------------------------------------
--- 🧿 AUTO SPAWN SUKUNA
-------------------------------------------------
-local function spawnSukuna()
-	if pityBoss.Value >= 25 then return end
-
-	local bossGUI = playerGui:WaitForChild("Button"):WaitForChild("Boss Spawn")
-	bossGUI.Visible = true
-
-	bossGUI.Spawn.Button:Activate()
-	task.wait(0.3)
-	playerGui.Button["Boss Spawn"].Frame.Sukuna.Button:Activate()
-end
-
-task.spawn(function()
-	while true do
-		if autoFarm then
-			pcall(spawnSukuna)
-		end
-		task.wait(3)
-	end
-end)
-
-------------------------------------------------
--- 🔄 MAIN LOOP (FINAL LOGIC)
+-- ⚔️ AUTO AIZEN (PITY 0–24)
 ------------------------------------------------
 task.spawn(function()
 	while true do
-		local value = pityBoss.Value
+		if autoFarm and pityBoss.Value < 25 and hrp then
+			local folder = workspace.Main.Characters.Huecomundo.Boss
+			local bhrp = findBoss(folder,"Aizen")
 
-		PityText.Text = "Pity : " .. value
-		PityText.TextColor3 =
-			(value == 25)
-			and Color3.fromRGB(255,80,80)
-			or Color3.fromRGB(80,255,80)
-
-		if autoFarm then
-			if value == 25 then
-				local anosHRP = findBoss("Abyss Hill [Upper]", "Anos")
-				if anosHRP then
-					hrp.CFrame = anosHRP.CFrame * CFrame.new(0,0,6)
-				else
-					warpToStarterIsland()
-				end
+			if bhrp then
+				hrp.CFrame = bhrp.CFrame * CFrame.new(0,0,5)
+				pressE()
 			else
-				warpToBoss("Throne Isle", "Sukuna")
+				hrp.CFrame = AIZEN_WAIT_CFRAME
+				pressE()
 			end
 		end
+		task.wait()
+	end
+end)
 
+------------------------------------------------
+-- 🔄 AIZEN WAIT LOOP (ทุก 2 วิ)
+------------------------------------------------
+task.spawn(function()
+	while true do
+		if autoFarm and pityBoss.Value < 25 and hrp then
+			hrp.CFrame = AIZEN_WAIT_CFRAME
+			pressE()
+		end
+		task.wait(2)
+	end
+end)
+
+------------------------------------------------
+-- 👑 ANOS / STARTER (PITY = 25)
+------------------------------------------------
+task.spawn(function()
+	while true do
+		if autoFarm and pityBoss.Value == 25 and hrp then
+			local area = workspace.Main.Characters["Abyss Hill [Upper]"]
+			local bhrp = findBoss(area.Boss,"Anos")
+			if bhrp then
+				hrp.CFrame = bhrp.CFrame * CFrame.new(0,0,6)
+			else
+				hrp.CFrame = STARTER_CFRAME
+			end
+		end
 		task.wait(1)
+	end
+end)
+
+------------------------------------------------
+-- 🖥️ iOS 26 STYLE UI + PITY REALTIME
+------------------------------------------------
+pcall(function()
+	if playerGui:FindFirstChild("AutoFarmGUI") then
+		playerGui.AutoFarmGUI:Destroy()
+	end
+end)
+
+local ScreenGui = Instance.new("ScreenGui", playerGui)
+ScreenGui.Name = "AutoFarmGUI"
+ScreenGui.ResetOnSpawn = false
+
+local Main = Instance.new("Frame", ScreenGui)
+Main.Size = UDim2.new(0,260,0,155)
+Main.Position = UDim2.new(0,20,0.5,-78)
+Main.BackgroundColor3 = Color3.fromRGB(18,18,22)
+Main.Active = true
+Main.Draggable = true
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0,22)
+
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(1,0,0,36)
+Title.BackgroundTransparency = 1
+Title.Text = "AUTO FARM"
+Title.Font = Enum.Font.GothamMedium
+Title.TextSize = 16
+Title.TextColor3 = Color3.fromRGB(240,240,240)
+
+local PityLabel = Instance.new("TextLabel", Main)
+PityLabel.Position = UDim2.new(0,0,0,42)
+PityLabel.Size = UDim2.new(1,0,0,28)
+PityLabel.BackgroundTransparency = 1
+PityLabel.Font = Enum.Font.Gotham
+PityLabel.TextSize = 14
+
+local Toggle = Instance.new("TextButton", Main)
+Toggle.Position = UDim2.new(0,20,1,-50)
+Toggle.Size = UDim2.new(1,-40,0,34)
+Toggle.Font = Enum.Font.GothamBold
+Toggle.TextSize = 14
+Toggle.TextColor3 = Color3.new(1,1,1)
+Toggle.BackgroundColor3 = Color3.fromRGB(120,60,60)
+Toggle.Text = "AUTO FARM : OFF"
+Instance.new("UICorner", Toggle).CornerRadius = UDim.new(0,12)
+
+Toggle.MouseButton1Click:Connect(function()
+	autoFarm = not autoFarm
+	getgenv().boss = autoFarm
+	autoPressE = autoFarm
+
+	Toggle.Text = "AUTO FARM : "..(autoFarm and "ON" or "OFF")
+	Toggle.BackgroundColor3 = autoFarm
+		and Color3.fromRGB(60,120,60)
+		or Color3.fromRGB(120,60,60)
+end)
+
+------------------------------------------------
+-- 🔄 UPDATE PITY REALTIME
+------------------------------------------------
+task.spawn(function()
+	while true do
+		local v = pityBoss.Value
+		PityLabel.Text = "Pity : "..v
+
+		PityLabel.TextColor3 =
+			(v == 25)
+			and Color3.fromRGB(255,90,90)
+			or Color3.fromRGB(120,255,120)
+
+		task.wait(0.3)
 	end
 end)
