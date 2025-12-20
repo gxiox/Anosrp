@@ -182,13 +182,13 @@ task.spawn(function()
 end)
 
 ------------------------------------------------
--- 👑 ANOS / STARTER (PITY = 25)
+-- 👑 KAFKA / STARTER (PITY = 25)
 ------------------------------------------------
 task.spawn(function()
 	while true do
 		if autoFarm and pityBoss.Value == 25 and hrp then
 			local area = workspace.Main.Characters["Abyss Hill [Upper]"]
-			local bhrp = findBoss(area.Boss,"Anos")
+			local bhrp = findBoss(area.Boss,"Kafka")
 			if bhrp then
 				hrp.CFrame = bhrp.CFrame * CFrame.new(0,0,6)
 			else
